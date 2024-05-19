@@ -14,15 +14,11 @@ const ReactNode = (props: NodeViewRendererProps) => {
 const MetricNode = Node.create({
   name: 'metric',
 
-  group: 'block',
+  inline: true,
 
-  content: 'inline*',
+  selectable: true,
 
-  // inline: true,
-  //
-  // selectable: false,
-  //
-  // atom: false,
+  atom: false,
 
   parseHTML() {
     return [
@@ -51,7 +47,7 @@ const MetricNode = Node.create({
   addAttributes() {
     return {
       id: {
-        default: null,
+        default: '',
         parseHTML: element => element.getAttribute('data-id'),
         renderHTML: attributes => {
           if (!attributes.id) {
@@ -65,7 +61,7 @@ const MetricNode = Node.create({
       },
 
       label: {
-        default: null,
+        default: '',
         parseHTML: element => element.getAttribute('data-label'),
         renderHTML: attributes => {
           if (!attributes.label) {

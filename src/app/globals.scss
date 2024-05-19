@@ -37,3 +37,9 @@ body {
 
 	}
 }
+
+.ProseMirror {
+  &-focused {
+    outline: none;
+  }
+}
