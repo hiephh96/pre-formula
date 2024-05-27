@@ -1,12 +1,11 @@
 import {SuggestionPlugin} from "@/plugin/SuggestionPlugin";
 import {DIMENSIONS, METRICS} from "@/shared/constants";
 import {
-  convertDimensionToText,
   convertEditorStateToText,
-  convertMetricToText, convertOperatorToText,
+  convertOtherToText,
   convertTextToDimension,
-  convertTextToMetric,
   convertTextToOperator,
+  convertTextToOther,
   handleMetricInput,
 } from "@/shared/helpers";
 import {schema} from "@/shared/schema";
@@ -77,35 +76,25 @@ const ProseMirrorEditor = () => {
               input(view, event) {
                 const {state, dispatch} = view;
                 const {doc} = state;
+                console.log(">> doc.descendants");
+                let transaction = view.state.tr;
+                doc.descendants((node, pos, parent) => {
+                  const shouldSkip = !["metric", "dimension", "operator", "text"].includes(node.type.name) ||
+                    ["metric", "dimension"].includes(parent.type.name);
 
-                console.log('>> doc.descendants');
-                doc.descendants((node, pos) => {
-                  console.log('node: ', node.textContent);
-                  const params = {
-                    node, view, pos
-                  }
-
-                  if (node.type.name === "text") {
-                    convertTextToOperator(params)
-                    convertTextToMetric(params)
-                    convertTextToDimension(params)
-                  }
-
-                  if (node.type.name === "metric") {
-                    convertMetricToText(params)
-                  }
-
-                  if (node.type.name === "operator") {
-                    convertOperatorToText(params)
-                  }
-
-                  if (node.type.name === "dimension") {
-                    convertDimensionToText(params)
+                  console.log(`>> node [${node.type.name}]: ${node?.textContent} shouldSkip: `, shouldSkip);
+                  if (!shouldSkip) {
+                    if (node.type.name === "text") {
+                      transaction = convertTextToOther(node, transaction, pos);
+                    } else {
+                      transaction = convertOtherToText(node, transaction, pos);
+                    }
                   }
                 });
 
-                if (view.state.tr.docChanged) {
-                  dispatch(view.state.tr);
+                console.log("docChanged", transaction.docChanged);
+                if (transaction.docChanged) {
+                  dispatch(transaction);
                   return true;
                 }
 

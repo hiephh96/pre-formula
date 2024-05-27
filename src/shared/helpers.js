@@ -1,37 +1,65 @@
 import {DIMENSIONS, METRICS, OPERATOR} from "@/shared/constants";
 import {schema} from "@/shared/schema";
-import {LogSpanAllowList} from "next/dist/server/lib/trace/constants";
 
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+const convertTextToKeyword = (input, metrics, dimensions, BinaryOperator) => {
+  // Convert metrics and dimensions to Map for efficient lookups
+  const metricMap = new Map(metrics.map(({id, name}) => [name, id]));
+  const dimensionMap = new Map(dimensions.map(({id, name}) => [name, id]));
 
-export function splitStringByKeywords(input, keywords) {
-  if (!input || !keywords?.length) return {};
+  // Convert BinaryOperator values to a Set for efficient lookups
+  const binaryOperatorSet = new Set(BinaryOperator.map(op => op.value));
 
-  const escapedKeywords = keywords.map(keyword => escapeRegExp(keyword));
+  const result = [];
+  let remainingText = input;
 
-  const pattern = new RegExp(`(${escapedKeywords.join("|")})`, "gi");
+  const findMatch = (text, values) => {
+    for (const value of values.keys()) {
+      if (text.startsWith(value)) {
+        return value;
+      }
+    }
+    return null;
+  };
 
-  // Split the input string by the pattern
-  const parts = input.split(pattern);
-  console.log({parts});
-  // Filter out empty strings and check if any keyword was matched
-  const result = parts.filter(part => part !== "");
+  while (remainingText.length > 0) {
+    let match = findMatch(remainingText, binaryOperatorSet);
+    if (match) {
+      result.push({type: "binary_operator", value: match});
+      remainingText = remainingText.slice(match.length);
+      continue;
+    }
 
-  const matchedKeywords = result.find(part => keywords.includes(part.toLowerCase()));
+    match = findMatch(remainingText, metricMap);
+    if (match) {
+      const metricId = metricMap.get(match);
+      result.push({type: "metric", value: match, metricId});
+      remainingText = remainingText.slice(match.length);
+      continue;
+    }
 
-  // If no keyword was matched, return null
-  if (!matchedKeywords) {
-    return {};
+    match = findMatch(remainingText, dimensionMap);
+    if (match) {
+      const dimensionId = dimensionMap.get(match);
+      result.push({type: "dimension", value: match, dimensionId});
+      remainingText = remainingText.slice(match.length);
+      continue;
+    }
+
+    let nextSpecialCharIndex = Math.min(
+      ...[...binaryOperatorSet, ...metricMap.keys(), ...dimensionMap.keys()].map(op => remainingText.indexOf(op)).filter(index => index > -1),
+    );
+
+    if (nextSpecialCharIndex === Infinity) {
+      nextSpecialCharIndex = remainingText.length;
+    }
+
+    const textPart = remainingText.slice(0, nextSpecialCharIndex);
+    result.push({type: "text", value: textPart});
+    remainingText = remainingText.slice(textPart.length);
   }
 
-  // Return the result
-  return {
-    matchedKeywords,
-    splitContents: result,
-  };
-}
+  return result;
+};
 
 export const convertEditorStateToText = (view) => {
   const doc = view?.state?.doc;
@@ -55,145 +83,96 @@ export const convertEditorStateToText = (view) => {
 
   return textContent;
 };
-// Object.values(OPERATOR), operator
-export const convertTextToOther = (params, target) => {
-  const {node, view, pos} = params;
-  const {keywords, type, attrKey} = target;
 
-  console.log(`--convert Text To [${type}]`, params);
+export const convertTextToOther = (node, transaction, pos) => {
+  const splitContents = convertTextToKeyword(node?.textContent, METRICS, DIMENSIONS, OPERATOR);
+  console.log("convertTextToOther: ", splitContents);
 
-  const from = pos;
-  const nodeType = node?.type?.name;
-  const {matchedKeywords, splitContents} = splitStringByKeywords(node?.textContent, keywords);
-  const tr = view?.state?.tr;
-
-  if (nodeType !== "text" || !matchedKeywords || !tr || !schema.nodes[type]) {
-    console.warn(`Fail`);
-    return false;
+  if (!splitContents.length) {
+    return transaction;
   }
 
-  console.log(`Oke`);
-
-  let start = from;
-  splitContents.forEach((text) => {
-    let end = start + text.length;
-    console.log(start, end);
-    const textNode = schema.text(text);
-
-    if (text === matchedKeywords) {
-      const operatorNode = schema.nodes[type].create({[attrKey]: matchedKeywords});
-      tr.replaceRangeWith(start, end, operatorNode);
-    } else {
-      tr.replaceRangeWith(start, end, textNode);
-    }
-
-    start = end + 1;
-  });
-
-  // const newPos = from + operatorNode.nodeSize;
-  // tr.setSelection(EditorState.create(view.state).selection.constructor.near(tr.doc.resolve(newPos)));
-  return tr.docChanged;
-};
-
-export const convertTextToOperator = (params) => {
-  return convertTextToOther(
-    params,
-    {
-      type: "operator",
-      keywords: Object.values(OPERATOR),
-      attrKey: "operator",
-    });
-};
-
-export const convertTextToMetric = (params) => {
-  return convertTextToOther(
-    params,
-    {
-      type: "metric",
-      keywords: Object.values(METRICS),
-      attrKey: "metricId",
-    },
-  );
-};
-
-export const convertTextToDimension = (params) => {
-  return convertTextToOther(
-    params,
-    {
-      type: "dimension",
-      keywords: Object.values(DIMENSIONS),
-      attrKey: "dimensionId",
-    },
-  );
-};
-
-export const convertOtherToText = (params, source) => {
-  const {node, view, pos} = params;
-  const {keywords, type} = source;
-
-  console.log(`--convert [${type}] to Text`, params);
-
-  const from = pos;
-  const nodeType = node?.type?.name;
-  const {matchedKeywords, splitContents} = splitStringByKeywords(node?.textContent, keywords);
-  const tr = view?.state?.tr;
-  const content = node?.textContent;
-
-  if (nodeType === "text" || content === matchedKeywords || type !== nodeType) {
-    console.warn(`convert [${type}] to Text Fail`);
-    return false;
-  }
-
-  console.log(`convert [${type}] to Text`, params, {matchedKeywords, splitContents});
-
-  if (splitContents?.length) {
-    let start = from;
-    splitContents.forEach((text) => {
-      let end = start + text.length;
-      const textNode = schema.text(text);
-
-      if (text === matchedKeywords) {
-        const operatorNode = schema.nodes[nodeType].create(node.attrs, textNode);
-        tr.replaceRangeWith(start, end, operatorNode);
-      } else {
-        tr.replaceRangeWith(start, end, textNode);
+  let start = pos;
+  transaction.deleteRange(start, start + node.nodeSize);
+  splitContents.forEach((part) => {
+    const {type, value} = part;
+    console.log(`--convert "${value}" To [${type}]`);
+    const textNode = schema.text(value);
+    switch (type) {
+      case "text":
+      {
+        console.log('textNode', textNode);
+        transaction.insert(start, textNode)
+        break;
       }
+      case "metric":
+      {
+        const metricNode = schema.nodes.metric.create({metricId: part.metricId}, textNode);
+        console.log('metric', metricNode);
 
-      start = end + 1;
-    });
-  } else {
-    const textNode = schema.text(content);
-    tr.replaceRangeWith(from, textNode.nodeSize, textNode);
+        transaction.insert(start, metricNode);
+        break;
+      }
+      case "dimension":
+      {
+        const dimensionNode = schema.nodes.dimension.create({dimensionId: part.dimensionId}, textNode);
+        transaction.insert(start, dimensionNode);
+        break;
+      }
+      case "binary_operator":
+      {
+        const operatorNode = schema.nodes.operator.create({operator: value});
+        transaction.insert(start, operatorNode);
+        break;
+      }
+      default:
+        break;
+    }
+    console.log(`--replaceRangeWith: ${start} - ${start + textNode.nodeSize}`);
+    start = start + textNode.nodeSize + 1;
+  });
+  return transaction;
+};
+
+export const convertOtherToText = (node, transaction, pos) => {
+  const nodeType = node?.type?.name;
+  if (nodeType === "text") {
+    console.warn("convertOtherToText: node is text");
+    return transaction;
+  }
+  const content = node?.textContent;
+  console.log(`--convert [${nodeType}] To Text: "${content}"`, pos);
+
+  switch (nodeType) {
+    case "dimension":
+    {
+      const dimensionId = node?.attrs?.dimensionId;
+      const dimension = DIMENSIONS.find(dim => dim.id === dimensionId && dim.name === content);
+      if (!dimension) {
+        return convertTextToOther(node, transaction, pos);
+      }
+      break;
+    }
+    case "metric":
+    {
+      const metricId = node?.attrs?.metricId;
+      const metric = METRICS.find(metric => metric.id === metricId && metric.name === content);
+      if (!metric) {
+        return convertTextToOther(node, transaction, pos);
+      }
+      break;
+    }
+    case "operator":
+    {
+      const operator = node?.attrs?.operator;
+      if (!OPERATOR.find(op => op.value === operator)) {
+        return convertTextToOther(node, transaction, pos);
+      }
+      break;
+    }
+    default:
+      return transaction;
   }
 
-  return tr.docChanged;
-};
-
-export const convertOperatorToText = (params) => {
-  return convertOtherToText(
-    params,
-    {
-      type: "operator",
-      keywords: Object.values(OPERATOR),
-    });
-};
-
-export const convertMetricToText = (params) => {
-  return convertOtherToText(
-    params,
-    {
-      type: "metric",
-      keywords: Object.values(METRICS),
-    },
-  );
-};
-
-export const convertDimensionToText = (params) => {
-  return convertOtherToText(
-    params,
-    {
-      type: "dimension",
-      keywords: Object.values(DIMENSIONS),
-    },
-  );
+  return transaction;
 };

@@ -14,8 +14,8 @@ export function SuggestionPlugin({view}) {
     const {from, to} = selection;
 
     const node = suggestion.type === "metric"
-      ? schema.nodes.metric.create({metricId: suggestion.id}, schema.text(METRICS[suggestion.id]))
-      : schema.nodes.dimension.create({dimensionId: suggestion.id}, schema.text(DIMENSIONS[suggestion.id]));
+      ? schema.nodes.metric.create({metricId: suggestion.id}, schema.text(suggestion.name))
+      : schema.nodes.dimension.create({dimensionId: suggestion.id}, schema.text(suggestion.name));
 
     const transaction = state.tr.replaceRangeWith(from, to, node);
     dispatch(transaction);
@@ -26,6 +26,13 @@ export function SuggestionPlugin({view}) {
     setSuggestions([]);
     setSelectedIndex(0);
   }, [view]);
+
+  useEffect(() => {
+    return () => {
+      setSuggestions([]);
+      setSelectedIndex(0);
+    }
+  }, []);
 
   useEffect(() => {
     if (!suggestions.length) return;
@@ -65,8 +72,8 @@ export function SuggestionPlugin({view}) {
         const rect = view.coordsAtPos(from);
         setPosition({top: rect.bottom, left: rect.left});
         setSuggestions([
-          ...Object.keys(METRICS).map(id => ({type: "metric", id, name: METRICS[id]})),
-          ...Object.keys(DIMENSIONS).map(id => ({type: "dimension", id, name: DIMENSIONS[id]})),
+          ...METRICS.map(metric => ({type: "metric", ...metric})),
+          ...DIMENSIONS.map(dim => ({type: "dimension", ...dim})),
         ]);
       } else {
         setSuggestions([]);
