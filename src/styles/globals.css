@@ -19,9 +19,9 @@
 	background: #eee;
 }
 
-.ProseMirror-menubar {
-	display: none;
-}
+/*.ProseMirror-menubar {*/
+/*	display: none;*/
+/*}*/
 
 .ProseMirror {
 	position: relative;
@@ -29,7 +29,6 @@
 
 .ProseMirror {
 	word-wrap: break-word;
-	white-space: pre-wrap;
 	white-space: break-spaces;
 	-webkit-font-variant-ligatures: none;
 	font-variant-ligatures: none;
@@ -87,9 +86,13 @@ img.ProseMirror-separator {
 }
 
 .dimension {
-	@apply text-green-400;
+	@apply text-green-300;
 }
 
-.binary-operator {
-	@apply font-bold text-red-600;
+.operator {
+	@apply font-bold text-gray-600;
+}
+
+.aggregation {
+	@apply text-pink-300;
 }

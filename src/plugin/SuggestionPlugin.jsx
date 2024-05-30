@@ -1,6 +1,21 @@
-import {DIMENSIONS, METRICS} from "@/shared/constants";
+import {AGGREGATION, DIMENSIONS, METRICS} from "@/shared/constants";
 import {schema} from "@/shared/schema";
+import {TextSelection} from "prosemirror-state";
 import React, {useCallback, useEffect, useState} from "react";
+
+export const getCurrentTextNodeContent = (view) => {
+  const {state} = view;
+  const {selection} = state;
+  const {$from} = selection;
+
+  if ($from.nodeBefore && $from.nodeBefore.isText) {
+    return $from.nodeBefore.textContent;
+  }
+  if ($from.nodeAfter && $from.nodeAfter.isText) {
+    return $from.nodeAfter.textContent;
+  }
+  return "";
+};
 
 export function SuggestionPlugin({view}) {
   const [suggestions, setSuggestions] = useState([]);
@@ -8,19 +23,45 @@ export function SuggestionPlugin({view}) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const insertSuggestion = useCallback((suggestion) => {
-    console.log("insertSuggestion", suggestion);
+    const {type, id, name} = suggestion;
     const {state, dispatch} = view;
-    const {selection} = state;
-    const {from, to} = selection;
+    const {tr, selection} = state;
+    const {$from, $to} = selection;
 
-    const node = suggestion.type === "metric"
-      ? schema.nodes.metric.create({metricId: suggestion.id}, schema.text(suggestion.name))
-      : schema.nodes.dimension.create({dimensionId: suggestion.id}, schema.text(suggestion.name));
+    let node;
+    switch (type) {
+      case "metric":
+        node = schema.nodes.metric.create({metricId: id}, schema.text(name));
+        break;
+      case "dimension":
+        node = schema.nodes.dimension.create({dimensionId: id}, schema.text(name));
+        break;
+      case "operator":
+        node = schema.nodes.operator.create({operator: id});
+        break;
+      case "aggregation":
+        node = schema.nodes.aggregation.create({aggregation: id}, schema.text(name));
+        break;
+      default:
+        node = schema.text(suggestion.name);
+        break;
+    }
 
-    const transaction = state.tr.replaceRangeWith(from, to, node);
-    dispatch(transaction);
+    let newPos = $from.pos
+    if ($from?.nodeBefore?.type.name === 'text') {
+      const newPos = $from.pos - ($from.nodeBefore ? $from.nodeBefore.nodeSize : 0);
+      tr.replaceWith(newPos, newPos + ($from.nodeBefore ? $from.nodeBefore.nodeSize : 0), node);
+    } else {
+      tr.insert(newPos, node);
+    }
 
-    // Focus the editor view after inserting the suggestion
+    try {
+      tr.setSelection(TextSelection.create(tr.doc, newPos + node.nodeSize))
+    } catch (e) {
+      console.warn(e.toString());
+    }
+
+    dispatch(tr);
     view.focus();
 
     setSuggestions([]);
@@ -31,7 +72,7 @@ export function SuggestionPlugin({view}) {
     return () => {
       setSuggestions([]);
       setSelectedIndex(0);
-    }
+    };
   }, []);
 
   useEffect(() => {
@@ -66,18 +107,15 @@ export function SuggestionPlugin({view}) {
       const {state} = view;
       const {selection} = state;
       const {from} = selection;
-      const text = state.doc.textBetween(0, from, " ");
-
-      if (text.endsWith("")) {
-        const rect = view.coordsAtPos(from);
-        setPosition({top: rect.bottom, left: rect.left});
-        setSuggestions([
-          ...METRICS.map(metric => ({type: "metric", ...metric})),
-          ...DIMENSIONS.map(dim => ({type: "dimension", ...dim})),
-        ]);
-      } else {
-        setSuggestions([]);
-      }
+      const lowerText = getCurrentTextNodeContent(view).toLowerCase();
+      console.log('>> lowerText', lowerText);
+      const rect = view.coordsAtPos(from);
+      setPosition({top: rect.bottom, left: rect.left});
+      setSuggestions([
+        ...AGGREGATION.map(item => ({type: "aggregation", name: item.value, id: item.value})),
+        ...METRICS.map(item => ({type: "metric", ...item})),
+        ...DIMENSIONS.map(item => ({type: "dimension", ...item})),
+      ].filter(item => item.name.toLowerCase().includes(lowerText)));
     };
 
     view.dom.addEventListener("input", handleInput);
@@ -100,7 +138,7 @@ export function SuggestionPlugin({view}) {
         }}>
         {suggestions.map((suggestion, index) => (
           <div
-            key={suggestion.id}
+            key={suggestion.id || suggestion.value}
             onClick={() => insertSuggestion(suggestion)}
             style={{
               backgroundColor: selectedIndex === index ? "#bde4ff" : "#fff",
@@ -108,7 +146,9 @@ export function SuggestionPlugin({view}) {
               cursor: "pointer",
             }}
           >
-            {suggestion.name}
+            <div className={`${suggestion.type}`}>
+              {suggestion.name || suggestion.value}
+            </div>
           </div>
         ))}
       </div>

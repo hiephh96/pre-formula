@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "next": "14.2.3",
+    "prosemirror-commands": "^1.5.2",
     "prosemirror-example-setup": "^1.2.2",
     "prosemirror-inputrules": "^1.4.0",
     "prosemirror-keymap": "^1.2.2",

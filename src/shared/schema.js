@@ -42,7 +42,7 @@ export const nodes = {
       dimensionId: {default: ""},
     },
     toDOM: (node) => ["span", {
-      "data-dimension-id": node.attrs.id,
+      "data-dimension-id": node.attrs.dimensionId,
       "class": "dimension",
     }, 0],
     parseDOM: [{
@@ -52,7 +52,27 @@ export const nodes = {
       }),
     }],
   },
+  aggregation: {
+    content: "text*",
+    group: "inline",
+    inline: true,
+    atom: false,
+    attrs: {
+      aggregation: {default: ""},
+    },
+    toDOM: (node) => ["span", {
+      "data-aggregation": node.aggregation,
+      "class": "aggregation",
+    }, 0],
+    parseDOM: [{
+      tag: "span[data-aggregation]",
+      getAttrs: dom => ({
+        dimensionId: dom.getAttribute("data-aggregation"),
+      }),
+    }],
+  },
   operator: {
+    content: "text*",
     group: 'inline',
     inline: true,
     atom: true,
@@ -61,7 +81,7 @@ export const nodes = {
     },
     toDOM: (node) => ['span', {
       'data-operator': node.attrs.operator,
-      class: 'binary-operator' }, node.attrs.operator],
+      class: 'operator' }, node.attrs.operator],
     parseDOM: [{
       tag: 'span[data-operator]',
       getAttrs: dom => ({ operator: dom.getAttribute('data-operator') }),

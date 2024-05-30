@@ -1,24 +1,16 @@
+import {convertDocToPlainText, CopyPastePlugin} from "@/plugin/CopyPastePlugin";
 import {SuggestionPlugin} from "@/plugin/SuggestionPlugin";
-import {DIMENSIONS, METRICS} from "@/shared/constants";
-import {
-  convertEditorStateToText,
-  convertOtherToText,
-  convertTextToDimension,
-  convertTextToOperator,
-  convertTextToOther,
-  handleMetricInput,
-} from "@/shared/helpers";
+import {convertOtherToText, convertTextToOther} from "@/shared/helpers";
 import {schema} from "@/shared/schema";
 import {exampleSetup} from "prosemirror-example-setup";
 import "prosemirror-view/style/prosemirror.css";
-import {inputRules, textblockTypeInputRule} from "prosemirror-inputrules";
 import {keymap} from "prosemirror-keymap";
 import {DOMParser} from "prosemirror-model";
-import {EditorState, Plugin} from "prosemirror-state";
+import {EditorState, Plugin, TextSelection} from "prosemirror-state";
 import {EditorView} from "prosemirror-view";
 import React, {useEffect, useMemo, useRef, useState} from "react";
 
-const ProseMirrorEditor = () => {
+const ProseMirrorEditor = ({defaultValue}) => {
   const editorRef = useRef();
   const [view, setView] = useState();
   const [editorStateJson, setEditorStateJson] = useState("");
@@ -27,152 +19,63 @@ const ProseMirrorEditor = () => {
     const state = EditorState.create({
       doc: DOMParser.fromSchema(schema).parse("<p>Type something...</p>"),
       plugins: [
-        ...exampleSetup({schema}),
         keymap({
-          "Mod-s": () => {
-            console.log("Save");
+          // Skip enter
+          Enter: (state, dispatch, view) => {
             return true;
           },
-          // Enter: (state, dispatch, view) => {
-          //   console.log('enter', document.querySelector(".suggestion-list"));
-          //   // Custom handling for Enter key
-          //   return !!document.querySelector(".suggestion-list");
-          //    // Allow default behavior if no suggestion list is present
-          // },
-        }),
-        inputRules({
-          rules: [
-            textblockTypeInputRule(/^> $/, schema.nodes.blockquote),
-          ],
         }),
         new Plugin({
           props: {
             handleDOMEvents: {
-              // blur(view, event) {
-              //   const {state, dispatch} = view;
-              //   const {doc} = state;
-              //   const tr = state.tr;
-              //   doc.descendants((node, pos) => {
-              //     if (node.isTextblock) {
-              //       node.descendants((inlineNode, inlinePos) => {
-              //         if (inlineNode.isText) {
-              //           const text = inlineNode.text;
-              //           const metricId = Object.keys(METRICS).find(id => METRICS[id] === text);
-              //           const dimensionId = Object.keys(DIMENSIONS).find(id => DIMENSIONS[id] === text);
-              //           if (metricId) {
-              //             const metricNode = schema.nodes.metric.create({metricId});
-              //             tr.replaceRangeWith(pos + inlinePos, pos + inlinePos + text.length, metricNode);
-              //           } else if (dimensionId) {
-              //             const dimensionNode = schema.nodes.dimension.create({dimensionId});
-              //             tr.replaceRangeWith(pos + inlinePos, pos + inlinePos + text.length, dimensionNode);
-              //           }
-              //         }
-              //       });
-              //     }
-              //   });
-              //   dispatch(tr);
-              //   return false;
-              // },
               input(view, event) {
                 const {state, dispatch} = view;
-                const {doc} = state;
-                console.log(">> doc.descendants");
-                let transaction = view.state.tr;
+                const {doc, selection} = state;
+                const {anchor, to} = selection;
+
+                console.log("-----------------------");
+                console.log(selection);
+                console.log(">> doc.descendants at anchor: ", anchor);
+                let transactionData = {
+                  transaction: view.state.tr,
+                  cursor: anchor,
+                  rePosition: 0,
+                };
+
                 doc.descendants((node, pos, parent) => {
-                  const shouldSkip = !["metric", "dimension", "operator", "text"].includes(node.type.name) ||
-                    ["metric", "dimension"].includes(parent.type.name);
+                  const shouldSkip = ["paragraph"].includes(node.type.name) ||
+                    ["metric", "dimension", "aggregation"].includes(parent.type.name);
 
                   console.log(`>> node [${node.type.name}]: ${node?.textContent} shouldSkip: `, shouldSkip);
                   if (!shouldSkip) {
                     if (node.type.name === "text") {
-                      transaction = convertTextToOther(node, transaction, pos);
+                      transactionData = convertTextToOther(node, transactionData, pos);
                     } else {
-                      transaction = convertOtherToText(node, transaction, pos);
+                      transactionData = convertOtherToText(node, transactionData, pos);
                     }
                   }
                 });
 
-                console.log("docChanged", transaction.docChanged);
-                if (transaction.docChanged) {
-                  dispatch(transaction);
+                console.log("docChanged", transactionData.transaction.docChanged, anchor, transactionData.rePosition);
+                if (transactionData.transaction.docChanged) {
+                  const mappedStart = anchor + transactionData.rePosition;
+                  const newSelection = TextSelection.create(transactionData.transaction.doc, mappedStart, mappedStart);
+                  transactionData.transaction.setSelection(newSelection);
+
+                  dispatch(transactionData.transaction);
+                  view.focus();
                   return true;
-                }
-
-                return false;
-              },
-              _input(view, event) {
-                const {state, dispatch} = view;
-                const {selection} = state;
-                const {from, to} = selection;
-                const node = state.doc.nodeAt(from);
-
-                if (!node) return false;
-
-                console.log({
-                  from, to, node,
-                });
-
-                let tr = state.tr;
-
-                if (node.type.name === "text") {
-                  const textContent = node.textContent.trim();
-
-                  // Handle binary operator input
-                  if (convertTextToOperator(view, from, to, textContent)) {
-                    return true;
-                  }
-
-                  // Handle metric input
-                  if (handleMetricInput(view, from, to, textContent)) {
-                    return true;
-                  }
-
-                  // Handle dimension input
-                  if (convertTextToDimension(view, from, to, textContent)) {
-                    return true;
-                  }
-                }
-
-                if (node.type.name === "metric" || node.type.name === "dimension") {
-                  const textContent = node.textContent;
-                  const matchedMetricId = Object.keys(METRICS).find(id => textContent.startsWith(METRICS[id]));
-                  const matchedDimensionId = Object.keys(DIMENSIONS).find(id => textContent.startsWith(DIMENSIONS[id]));
-
-                  if (matchedMetricId) {
-                    const newMetricNode = schema.nodes.metric.create({metricId: matchedMetricId}, schema.text(METRICS[matchedMetricId]));
-                    tr = tr.replaceRangeWith(from - node.nodeSize + 1, from + 1, newMetricNode);
-                    const newPos = from - node.nodeSize + newMetricNode.nodeSize;
-                    tr = tr.setSelection(EditorState.create(state).selection.constructor.near(tr.doc.resolve(newPos)));
-                    const remainingText = textContent.slice(METRICS[matchedMetricId].length);
-                    if (remainingText) {
-                      const textNode = schema.text(remainingText);
-                      tr = tr.insert(newPos + 1, textNode);
-                    }
-                    dispatch(tr);
-                    return true;
-                  } else if (matchedDimensionId) {
-                    const newDimensionNode = schema.nodes.dimension.create({dimensionId: matchedDimensionId}, schema.text(DIMENSIONS[matchedDimensionId]));
-                    tr = tr.replaceRangeWith(from - node.nodeSize + 1, from + 1, newDimensionNode);
-                    const newPos = from - node.nodeSize + newDimensionNode.nodeSize;
-                    tr = tr.setSelection(EditorState.create(state).selection.constructor.near(tr.doc.resolve(newPos)));
-                    const remainingText = textContent.slice(DIMENSIONS[matchedDimensionId].length);
-                    if (remainingText) {
-                      const textNode = schema.text(remainingText);
-                      tr = tr.insert(newPos + 1, textNode);
-                    }
-                    dispatch(tr);
-                    return true;
-                  }
-                }
-
-                if (tr.docChanged) {
-                  dispatch(tr);
                 }
 
                 return false;
               },
             },
           },
+        }),
+        CopyPastePlugin,
+        ...exampleSetup({
+          schema,
+          menuBar: false,
         }),
       ],
       //defaultText: 'Type something...',
@@ -200,7 +103,7 @@ const ProseMirrorEditor = () => {
   }, []);
 
   const textContent = useMemo(() => {
-    return convertEditorStateToText(view);
+    return convertDocToPlainText(view?.state?.doc);
   }, [view?.state?.doc]);
 
   return (
