@@ -1,20 +1,21 @@
-import {AGGREGATION, DIMENSIONS, METRICS} from "@/shared/constants";
+import {AGGREGATION, DIMENSIONS, METRICS, OPERATOR} from "@/shared/constants";
+import {convertTextToOther} from "@/shared/helpers";
 import {schema} from "@/shared/schema";
 import {TextSelection} from "prosemirror-state";
 import React, {useCallback, useEffect, useState} from "react";
 
-export const getCurrentTextNodeContent = (view) => {
+export const getCurrentTextNode = (view) => {
   const {state} = view;
   const {selection} = state;
   const {$from} = selection;
 
   if ($from.nodeBefore && $from.nodeBefore.isText) {
-    return $from.nodeBefore.textContent;
+    return $from.nodeBefore;
   }
   if ($from.nodeAfter && $from.nodeAfter.isText) {
-    return $from.nodeAfter.textContent;
+    return $from.nodeAfter;
   }
-  return "";
+  return undefined;
 };
 
 export function SuggestionPlugin({view}) {
@@ -107,15 +108,40 @@ export function SuggestionPlugin({view}) {
       const {state} = view;
       const {selection} = state;
       const {from} = selection;
-      const lowerText = getCurrentTextNodeContent(view).toLowerCase();
+      const node = getCurrentTextNode(view);
+      const lowerText = node?.textContent?.toLowerCase() || '';
+
       console.log('>> lowerText', lowerText);
       const rect = view.coordsAtPos(from);
       setPosition({top: rect.bottom, left: rect.left});
-      setSuggestions([
+
+      const suggestionData = [
+        ...OPERATOR.map(item => ({type: "aggregation", name: item.value, id: item.value})),
         ...AGGREGATION.map(item => ({type: "aggregation", name: item.value, id: item.value})),
         ...METRICS.map(item => ({type: "metric", ...item})),
         ...DIMENSIONS.map(item => ({type: "dimension", ...item})),
-      ].filter(item => item.name.toLowerCase().includes(lowerText)));
+      ].filter(item => item.name.toLowerCase().includes(lowerText))
+      setSuggestions(suggestionData);
+
+      console.log({suggestionData, from});
+      if (suggestionData.length > 0) return;
+
+      const anchor = view.state.selection.anchor
+      let transactionData = {
+        transaction: view.state.tr,
+        cursor: anchor,
+        rePosition: 0,
+      };
+      transactionData = convertTextToOther(node, transactionData, from);
+
+      if (transactionData.transaction.docChanged) {
+        const mappedStart = anchor + transactionData.rePosition;
+        const newSelection = TextSelection.create(transactionData.transaction.doc, mappedStart, mappedStart);
+        transactionData.transaction.setSelection(newSelection);
+
+        view.dispatch(transactionData.transaction);
+        view.focus();
+      }
     };
 
     view.dom.addEventListener("input", handleInput);
