@@ -1,6 +1,8 @@
 import {sortBy} from "lodash";
 
 export const OPERATOR = sortBy([
+  {value: "("},
+  {value: ")"},
   {value: "<>"},
   {value: ">="},
   {value: "<="},

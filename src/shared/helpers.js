@@ -1,11 +1,5 @@
-import {
-  AGGREGATION,
-  DIMENSIONS,
-  METRICS,
-  OPERATOR,
-} from "@/shared/constants";
+import {AGGREGATION, DIMENSIONS, METRICS, OPERATOR} from "@/shared/constants";
 import {schema} from "@/shared/schema";
-import {LogSpanAllowList} from "next/dist/server/lib/trace/constants";
 
 const convertTextToToken = (input) => {
   const result = [];
@@ -67,7 +61,7 @@ const convertTextToToken = (input) => {
         ...METRICS.map(item => item.name),
         ...METRICS.map(item => item.id),
         ...DIMENSIONS.map(item => item.name),
-        ...DIMENSIONS.map(item => item.id)
+        ...DIMENSIONS.map(item => item.id),
       ]
       .map(op => remainingText.indexOf(op))
       .filter(index => index > -1),
@@ -160,6 +154,38 @@ export const convertTextToOther = (node, transactionData, pos) => {
   return transactionData;
 };
 
+// Custom command to convert a node to text node
+export function convertNodeToText(node, state, dispatch) {
+  const { from, to } = state.selection;
+  let tr = state.tr;
+
+  try {
+    tr.deleteRange(from, to);
+    tr.insert(from, schema.text(node.textContent));
+  } catch (e) {
+    console.warn(e.toString());
+  }
+
+  if (dispatch && tr.docChanged) dispatch(tr);
+  return true;
+}
+
+// Custom command to convert a node to text node
+export function convertNodeToText2(node, state, dispatch) {
+  const { from, to, empty } = state.selection;
+  console.log('convertNodeToText2', from, to);
+  let tr = state.tr;
+  state.doc.nodesBetween(from, to, (n, pos) => {
+    console.log(n, pos);
+    if (n.type.name === node.type.name) {
+      const textContent = n.textContent;
+      tr = tr.replaceWith(pos, pos + n.nodeSize, schema.text(textContent));
+    }
+  });
+
+  if (dispatch && tr.docChanged) dispatch(tr);
+}
+
 export const convertOtherToText = (node, transactionData, pos) => {
   const nodeType = node?.type?.name;
   if (nodeType === "text") {
@@ -209,4 +235,27 @@ export const convertOtherToText = (node, transactionData, pos) => {
   }
 
   return transactionData;
+};
+
+export const getTextNodeStartPosition = (view) => {
+  const $from = view.state.selection.$from;
+  let position = $from.pos;
+  if ($from?.nodeBefore?.type.name === "text") {
+    position = $from.pos - ($from.nodeBefore ? $from.nodeBefore.nodeSize : 0);
+  }
+  return position;
+};
+
+export const getFocusNode = (view) => {
+  const {state} = view;
+  const {selection} = state;
+  const {$from} = selection;
+
+  if ($from.nodeBefore) {
+    return {node: $from.nodeBefore, pos: $from.pos - $from.nodeBefore.nodeSize};
+  }
+  if ($from.nodeAfter) {
+    return {node: $from.nodeAfter, pos: $from.pos};
+  }
+  return undefined;
 };

@@ -1,5 +1,5 @@
 import {AGGREGATION, DIMENSIONS, METRICS, OPERATOR} from "@/shared/constants";
-import {convertTextToOther} from "@/shared/helpers";
+import {convertTextToOther, getTextNodeStartPosition} from "@/shared/helpers";
 import {schema} from "@/shared/schema";
 import {TextSelection} from "prosemirror-state";
 import React, {useCallback, useEffect, useState} from "react";
@@ -48,16 +48,16 @@ export function SuggestionPlugin({view}) {
         break;
     }
 
-    let newPos = $from.pos
+    let position = $from.pos;
     if ($from?.nodeBefore?.type.name === 'text') {
-      const newPos = $from.pos - ($from.nodeBefore ? $from.nodeBefore.nodeSize : 0);
-      tr.replaceWith(newPos, newPos + ($from.nodeBefore ? $from.nodeBefore.nodeSize : 0), node);
+      position = getTextNodeStartPosition(view);
+      tr.replaceWith(position, position + $from?.nodeBefore.nodeSize, node);
     } else {
-      tr.insert(newPos, node);
+      tr.insert(position, node);
     }
 
     try {
-      tr.setSelection(TextSelection.create(tr.doc, newPos + node.nodeSize))
+      tr.setSelection(TextSelection.create(tr.doc, position + node.nodeSize))
     } catch (e) {
       console.warn(e.toString());
     }
@@ -107,12 +107,12 @@ export function SuggestionPlugin({view}) {
     const handleInput = (event) => {
       const {state} = view;
       const {selection} = state;
-      const {from} = selection;
+      const {from, anchor} = selection;
       const node = getCurrentTextNode(view);
       const lowerText = node?.textContent?.toLowerCase() || '';
 
       console.log('>> lowerText', lowerText);
-      const rect = view.coordsAtPos(from);
+      const rect = view.coordsAtPos(anchor);
       setPosition({top: rect.bottom, left: rect.left});
 
       const suggestionData = [
@@ -120,33 +120,46 @@ export function SuggestionPlugin({view}) {
         ...AGGREGATION.map(item => ({type: "aggregation", name: item.value, id: item.value})),
         ...METRICS.map(item => ({type: "metric", ...item})),
         ...DIMENSIONS.map(item => ({type: "dimension", ...item})),
-      ].filter(item => item.name.toLowerCase().includes(lowerText))
+      ].filter(item => item.name.toLowerCase().includes(lowerText.trimStart()))
       setSuggestions(suggestionData);
 
       console.log({suggestionData, from});
       if (suggestionData.length > 0) return;
 
-      const anchor = view.state.selection.anchor
+      const replacePosition = getTextNodeStartPosition(view)
+      console.log(replacePosition);
       let transactionData = {
         transaction: view.state.tr,
-        cursor: anchor,
+        cursor: replacePosition,
         rePosition: 0,
       };
-      transactionData = convertTextToOther(node, transactionData, from);
+      transactionData = convertTextToOther(node, transactionData, replacePosition);
 
       if (transactionData.transaction.docChanged) {
-        const mappedStart = anchor + transactionData.rePosition;
-        const newSelection = TextSelection.create(transactionData.transaction.doc, mappedStart, mappedStart);
-        transactionData.transaction.setSelection(newSelection);
+        // const mappedStart = replacePosition + transactionData.rePosition;
+        // const newSelection = TextSelection.create(transactionData.transaction.doc, mappedStart, mappedStart);
+        // transactionData.transaction.setSelection(newSelection);
 
         view.dispatch(transactionData.transaction);
-        view.focus();
       }
     };
 
     view.dom.addEventListener("input", handleInput);
+    view.dom.addEventListener("focus", handleInput);
     return () => {
       view.dom.removeEventListener("input", handleInput);
+      view.dom.removeEventListener("focus", handleInput);
+    };
+  }, [view]);
+
+  useEffect(() => {
+    const handleBlur = () => {
+      setSuggestions([]);
+      setSelectedIndex(0);
+    }
+    view.dom.addEventListener("blur", handleBlur);
+    return () => {
+      view.dom.removeEventListener("blur", handleBlur);
     };
   }, [view]);
 

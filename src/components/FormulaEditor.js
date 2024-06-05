@@ -1,6 +1,12 @@
 import {convertDocToPlainText, CopyPastePlugin} from "@/plugin/CopyPastePlugin";
 import {SuggestionPlugin} from "@/plugin/SuggestionPlugin";
-import {convertOtherToText, convertTextToOther} from "@/shared/helpers";
+import {
+  convertNodeToText,
+  convertNodeToText2,
+  convertOtherToText,
+  convertTextToOther,
+  getFocusNode,
+} from "@/shared/helpers";
 import {schema} from "@/shared/schema";
 import {StoreProvider, useStore} from "@/store";
 import {exampleSetup} from "prosemirror-example-setup";
@@ -30,6 +36,29 @@ const ProseMirrorEditor = () => {
           Enter: (state, dispatch, view) => {
             return true;
           },
+          "Delete": (state, dispatch, view) => {
+            const { $cursor } = state.selection;
+            if ($cursor) {
+              console.log('trigger Delete', state.doc.nodeAt($cursor.pos));
+              const node = state.doc.nodeAt($cursor.pos);
+              if (node && node.textContent.length > 0) {
+                // If the node has content, convert it to a text node
+                convertNodeToText2(state, dispatch);
+              }
+            }
+            return false; // Fall back to default delete behavior
+          },
+          "Backspace": (state, dispatch, view) => {
+            const {node: focusNode, pos} = getFocusNode(view);
+            const tr = state.tr;
+            console.log('trigger Backspace: ', focusNode?.textContent, pos);
+            if (focusNode.textContent) {
+              tr.deleteRange(pos, pos+focusNode.nodeSize);
+              tr.insert(pos, schema.text(focusNode.textContent));
+              dispatch(tr);
+            }
+            return false;
+          }
         }),
         new Plugin({
           props: {

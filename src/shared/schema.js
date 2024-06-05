@@ -71,6 +71,22 @@ export const nodes = {
       }),
     }],
   },
+  // bracket: {
+  //   content: "text*",
+  //   group: 'inline',
+  //   inline: true,
+  //   atom: true,
+  //   attrs: {
+  //     operator: { default: '' },
+  //   },
+  //   toDOM: (node) => ['span', {
+  //     'data-operator': node.attrs.operator,
+  //     class: 'operator' }, node.attrs.operator],
+  //   parseDOM: [{
+  //     tag: 'span[data-operator]',
+  //     getAttrs: dom => ({ operator: dom.getAttribute('data-operator') }),
+  //   }],
+  // },
   operator: {
     content: "text*",
     group: 'inline',
