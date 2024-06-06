@@ -1,18 +1,35 @@
-import {AGGREGATION, DIMENSIONS, METRICS, OPERATOR} from "@/shared/constants";
+import {AGGREGATION, DIMENSIONS, METRICS} from "@/shared/constants";
 import {convertTextToOther, getTextNodeStartPosition} from "@/shared/helpers";
-import {schema} from "@/shared/schema";
+import {nodesHasContent, schema} from "@/shared/schema";
 import {TextSelection} from "prosemirror-state";
 import React, {useCallback, useEffect, useState} from "react";
 
-export const getCurrentTextNode = (view) => {
-  const {state} = view;
+export const getCurrentTextNode = (state) => {
   const {selection} = state;
   const {$from} = selection;
+  const parentType = $from?.parent?.type.name;
+  console.log("-- getCurrentTextNode nodeBefore", {
+    type: $from.nodeBefore?.type.name,
+    text: $from.nodeBefore?.textContent,
+    parent: parentType,
+  });
+  if (nodesHasContent.includes(parentType)) return undefined;
 
-  if ($from.nodeBefore && $from.nodeBefore.isText) {
+  if ($from.nodeBefore &&
+    $from.nodeBefore.type.name === "text")
+  {
     return $from.nodeBefore;
   }
-  if ($from.nodeAfter && $from.nodeAfter.isText) {
+
+  console.log("-- getCurrentTextNode nodeAfter", {
+    type: $from.nodeAfter?.type.name,
+    text: $from.nodeAfter?.textContent,
+    parent: parentType,
+  });
+
+  if ($from.nodeAfter &&
+    $from.nodeAfter.type.name === "text")
+  {
     return $from.nodeAfter;
   }
   return undefined;
@@ -49,15 +66,15 @@ export function SuggestionPlugin({view}) {
     }
 
     let position = $from.pos;
-    if ($from?.nodeBefore?.type.name === 'text') {
-      position = getTextNodeStartPosition(view);
+    if ($from?.nodeBefore?.type.name === "text") {
+      position = getTextNodeStartPosition(view.state);
       tr.replaceWith(position, position + $from?.nodeBefore.nodeSize, node);
     } else {
       tr.insert(position, node);
     }
 
     try {
-      tr.setSelection(TextSelection.create(tr.doc, position + node.nodeSize))
+      tr.setSelection(TextSelection.create(tr.doc, position + node.nodeSize));
     } catch (e) {
       console.warn(e.toString());
     }
@@ -108,26 +125,26 @@ export function SuggestionPlugin({view}) {
       const {state} = view;
       const {selection} = state;
       const {from, anchor} = selection;
-      const node = getCurrentTextNode(view);
-      const lowerText = node?.textContent?.toLowerCase() || '';
+      const node = getCurrentTextNode(view.state);
+      const lowerText = node?.textContent?.toLowerCase() || "";
 
-      console.log('>> lowerText', lowerText);
+      console.log(">> lowerText", lowerText, anchor, view.coordsAtPos(anchor));
       const rect = view.coordsAtPos(anchor);
       setPosition({top: rect.bottom, left: rect.left});
 
       const suggestionData = [
-        ...OPERATOR.map(item => ({type: "aggregation", name: item.value, id: item.value})),
+        // ...OPERATOR.map(item => ({type: "aggregation", name: item.value, id: item.value})),
         ...AGGREGATION.map(item => ({type: "aggregation", name: item.value, id: item.value})),
         ...METRICS.map(item => ({type: "metric", ...item})),
         ...DIMENSIONS.map(item => ({type: "dimension", ...item})),
-      ].filter(item => item.name.toLowerCase().includes(lowerText.trimStart()))
+      ].filter(item => item.name.toLowerCase().includes(lowerText.trimStart()));
       setSuggestions(suggestionData);
 
       console.log({suggestionData, from});
       if (suggestionData.length > 0) return;
 
-      const replacePosition = getTextNodeStartPosition(view)
-      console.log(replacePosition);
+      const replacePosition = getTextNodeStartPosition(view.state);
+      console.log("replaceStartPosition", replacePosition);
       let transactionData = {
         transaction: view.state.tr,
         cursor: replacePosition,
@@ -156,7 +173,7 @@ export function SuggestionPlugin({view}) {
     const handleBlur = () => {
       setSuggestions([]);
       setSelectedIndex(0);
-    }
+    };
     view.dom.addEventListener("blur", handleBlur);
     return () => {
       view.dom.removeEventListener("blur", handleBlur);

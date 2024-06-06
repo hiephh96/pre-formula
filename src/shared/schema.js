@@ -105,4 +105,12 @@ export const nodes = {
   },
 };
 
+export const nodesHasContent = Object.keys(nodes).reduce((acc, key) => {
+  if (nodes[key] && nodes[key].content && nodes[key].atom === false) {
+    acc.push(key);
+  }
+
+  return acc;
+}, [])
+
 export const schema = new Schema({nodes});

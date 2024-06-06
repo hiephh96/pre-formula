@@ -1,5 +1,6 @@
 import {AGGREGATION, DIMENSIONS, METRICS, OPERATOR} from "@/shared/constants";
 import {schema} from "@/shared/schema";
+import {TextSelection} from "prosemirror-state";
 
 const convertTextToToken = (input) => {
   const result = [];
@@ -81,7 +82,7 @@ const convertTextToToken = (input) => {
 
 export const convertTextToOther = (node, transactionData, pos) => {
   const splitContents = convertTextToToken(node?.textContent, METRICS, DIMENSIONS, OPERATOR);
-  console.log("convertTextToOther: ", node?.textContent, splitContents, pos);
+  console.log("convertTextToOther: ", node?.textContent, node?.type.name, pos);
 
   if (!splitContents.length ||
     (splitContents.length === 1 && splitContents[0].type === node.type.name)
@@ -99,7 +100,7 @@ export const convertTextToOther = (node, transactionData, pos) => {
     console.warn(e.toString());
   }
 
-  console.log(splitContents);
+  console.log("splitContents", splitContents, start);
   splitContents.forEach((part, index) => {
     const {type, value} = part;
 
@@ -156,7 +157,7 @@ export const convertTextToOther = (node, transactionData, pos) => {
 
 // Custom command to convert a node to text node
 export function convertNodeToText(node, state, dispatch) {
-  const { from, to } = state.selection;
+  const {from, to} = state.selection;
   let tr = state.tr;
 
   try {
@@ -172,8 +173,8 @@ export function convertNodeToText(node, state, dispatch) {
 
 // Custom command to convert a node to text node
 export function convertNodeToText2(node, state, dispatch) {
-  const { from, to, empty } = state.selection;
-  console.log('convertNodeToText2', from, to);
+  const {from, to, empty} = state.selection;
+  console.log("convertNodeToText2", from, to);
   let tr = state.tr;
   state.doc.nodesBetween(from, to, (n, pos) => {
     console.log(n, pos);
@@ -237,8 +238,8 @@ export const convertOtherToText = (node, transactionData, pos) => {
   return transactionData;
 };
 
-export const getTextNodeStartPosition = (view) => {
-  const $from = view.state.selection.$from;
+export const getTextNodeStartPosition = (state) => {
+  const $from = state.selection.$from;
   let position = $from.pos;
   if ($from?.nodeBefore?.type.name === "text") {
     position = $from.pos - ($from.nodeBefore ? $from.nodeBefore.nodeSize : 0);
@@ -257,5 +258,47 @@ export const getFocusNode = (view) => {
   if ($from.nodeAfter) {
     return {node: $from.nodeAfter, pos: $from.pos};
   }
-  return undefined;
+  return {node: undefined, pos: undefined};
+};
+
+export const handleKeyboardEvent = (view, event) => {
+  const {state, dispatch} = view;
+  const {doc, selection} = state;
+  const {anchor, to} = selection;
+
+  console.log("-----------------------");
+  console.log(selection);
+  console.log(">> doc.descendants at anchor: ", anchor);
+  let transactionData = {
+    transaction: view.state.tr,
+    cursor: view.state.selection.anchor,
+    rePosition: 0,
+  };
+
+  doc.descendants((node, pos, parent) => {
+    const shouldSkip = ["paragraph"].includes(node.type.name) ||
+      ["metric", "dimension", "aggregation"].includes(parent.type.name);
+
+    console.log(`>> node [${node.type.name}]: ${node?.textContent} shouldSkip: `, shouldSkip);
+    if (!shouldSkip) {
+      if (node.type.name === "text") {
+        // transactionData = convertTextToOther(node, transactionData, pos);
+      } else {
+        transactionData = convertOtherToText(node, transactionData, pos);
+      }
+    }
+  });
+
+  console.log("docChanged", transactionData.transaction.docChanged, anchor, transactionData.rePosition);
+  if (transactionData.transaction.docChanged) {
+    const mappedStart = anchor + transactionData.rePosition;
+    const newSelection = TextSelection.create(transactionData.transaction.doc, mappedStart, mappedStart);
+    transactionData.transaction.setSelection(newSelection);
+
+    dispatch(transactionData.transaction);
+    view.focus();
+    return true;
+  }
+
+  return false;
 };

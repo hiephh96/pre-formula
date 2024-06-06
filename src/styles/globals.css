@@ -90,9 +90,9 @@ img.ProseMirror-separator {
 }
 
 .operator {
-	@apply font-bold text-purple-500;
+	@apply font-bold text-pink-300;
 }
 
 .aggregation {
-	@apply text-pink-300;
+	@apply text-purple-400;
 }

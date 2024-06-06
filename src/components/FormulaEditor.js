@@ -1,11 +1,11 @@
 import {convertDocToPlainText, CopyPastePlugin} from "@/plugin/CopyPastePlugin";
-import {SuggestionPlugin} from "@/plugin/SuggestionPlugin";
+import {getCurrentTextNode, SuggestionPlugin} from "@/plugin/SuggestionPlugin";
 import {
-  convertNodeToText,
   convertNodeToText2,
-  convertOtherToText,
   convertTextToOther,
   getFocusNode,
+  getTextNodeStartPosition,
+  handleKeyboardEvent,
 } from "@/shared/helpers";
 import {schema} from "@/shared/schema";
 import {StoreProvider, useStore} from "@/store";
@@ -37,9 +37,9 @@ const ProseMirrorEditor = () => {
             return true;
           },
           "Delete": (state, dispatch, view) => {
-            const { $cursor } = state.selection;
+            const {$cursor} = state.selection;
             if ($cursor) {
-              console.log('trigger Delete', state.doc.nodeAt($cursor.pos));
+              console.log("trigger Delete", state.doc.nodeAt($cursor.pos));
               const node = state.doc.nodeAt($cursor.pos);
               if (node && node.textContent.length > 0) {
                 // If the node has content, convert it to a text node
@@ -51,62 +51,49 @@ const ProseMirrorEditor = () => {
           "Backspace": (state, dispatch, view) => {
             const {node: focusNode, pos} = getFocusNode(view);
             const tr = state.tr;
-            console.log('trigger Backspace: ', focusNode?.textContent, pos);
-            if (focusNode.textContent) {
-              tr.deleteRange(pos, pos+focusNode.nodeSize);
+            console.log("trigger Backspace: ", focusNode?.textContent, pos);
+            if (focusNode?.textContent) {
+              tr.deleteRange(pos, pos + focusNode.nodeSize);
               tr.insert(pos, schema.text(focusNode.textContent));
               dispatch(tr);
             }
             return false;
-          }
+          },
         }),
         new Plugin({
           props: {
-            handleDOMEvents: {
-              input(view, event) {
-                const {state, dispatch} = view;
-                const {doc, selection} = state;
-                const {anchor, to} = selection;
+            handleKeyDown(view, event) {
+              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                const node = getCurrentTextNode(view.state);
+                if (!node) return false
 
-                console.log("-----------------------");
-                console.log(selection);
-                console.log(">> doc.descendants at anchor: ", anchor);
+                const replacePosition = getTextNodeStartPosition(view.state)
                 let transactionData = {
                   transaction: view.state.tr,
-                  cursor: view.state.selection.anchor,
+                  cursor: replacePosition,
                   rePosition: 0,
                 };
 
-                doc.descendants((node, pos, parent) => {
-                  const shouldSkip = ["paragraph"].includes(node.type.name) ||
-                    ["metric", "dimension", "aggregation"].includes(parent.type.name);
+                transactionData = convertTextToOther(node, transactionData, replacePosition);
 
-                  console.log(`>> node [${node.type.name}]: ${node?.textContent} shouldSkip: `, shouldSkip);
-                  if (!shouldSkip) {
-                    if (node.type.name === "text") {
-                      // transactionData = convertTextToOther(node, transactionData, pos);
-                    } else {
-                      transactionData = convertOtherToText(node, transactionData, pos);
-                    }
-                  }
-                });
-
-                console.log("docChanged", transactionData.transaction.docChanged, anchor, transactionData.rePosition);
                 if (transactionData.transaction.docChanged) {
-                  const mappedStart = anchor + transactionData.rePosition;
-                  const newSelection = TextSelection.create(transactionData.transaction.doc, mappedStart, mappedStart);
-                  transactionData.transaction.setSelection(newSelection);
+                  // const mappedStart = replacePosition + transactionData.rePosition;
+                  // const newSelection = TextSelection.create(transactionData.transaction.doc, mappedStart, mappedStart);
+                  // transactionData.transaction.setSelection(newSelection);
 
-                  dispatch(transactionData.transaction);
-                  view.focus();
-                  return true;
+                  view.dispatch(transactionData.transaction);
                 }
-
-                return false;
+              }
+              return false;
+            },
+            handleDOMEvents: {
+              input(view, event) {
+                return handleKeyboardEvent(view, event);
               },
             },
           },
         }),
+        // CursorMovementPlugin,
         CopyPastePlugin,
         ...exampleSetup({
           schema,
